@@ -74,5 +74,4 @@ Run `npm run lint` before handing off code changes when feasible. Run `npm run k
 
 - The worktree may contain user changes. Do not revert or overwrite unrelated edits.
 - Keep generated files and dependency churn out of changes unless the task requires them.
-- Do not run `npm run reset-project` unless the user explicitly asks for a reset.
 - If dependencies change, update both `package.json` and `package-lock.json`.
