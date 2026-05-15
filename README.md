@@ -31,4 +31,5 @@ Useful checks:
 ```bash
 npm run lint
 npm run knip
+npm run klint # runs lint followed by knip
 ```
