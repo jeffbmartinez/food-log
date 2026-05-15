@@ -1,98 +1,299 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useColorScheme,
+  View,
+} from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { Colors } from '@/constants/theme';
+import {
+  FoodLogEntry,
+  getCalorieTotal,
+  getEntriesForLocalDay,
+  getTimerEligibleEntries,
+  useFoodLog,
+} from '@/lib/food-log-store';
+import { navigateToAddEntry, navigateToEditEntry } from '@/lib/entry-navigation';
 
-export default function HomeScreen() {
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatElapsed(from: string, now: Date) {
+  const elapsedMs = Math.max(0, now.getTime() - new Date(from).getTime());
+  const totalMinutes = Math.floor(elapsedMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0 && minutes === 0) {
+    return 'Just now';
+  }
+
+  if (hours === 0) {
+    return `${minutes}m`;
+  }
+
+  if (minutes === 0) {
+    return `${hours}h`;
+  }
+
+  return `${hours}h ${minutes}m`;
+}
+
+function describeCalories(entry: FoodLogEntry) {
+  if (entry.calories === null) {
+    return 'Calories unknown';
+  }
+
+  return `${entry.calories} cal`;
+}
+
+export default function DashboardScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+  const { entries, isLoading, deleteEntry } = useFoodLog();
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const todayEntries = useMemo(() => getEntriesForLocalDay(entries, now), [entries, now]);
+  const calorieTotal = useMemo(() => getCalorieTotal(todayEntries), [todayEntries]);
+  const latestTimerEntry = getTimerEligibleEntries(todayEntries)[0];
+
+  function confirmDelete(entry: FoodLogEntry) {
+    if (Platform.OS === 'web') {
+      const shouldDelete = window.confirm(`${entry.name} will be removed from your log.`);
+
+      if (shouldDelete) {
+        deleteEntry(entry.id);
+      }
+
+      return;
+    }
+
+    Alert.alert('Delete entry?', `${entry.name} will be removed from your log.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          deleteEntry(entry.id);
+        },
+      },
+    ]);
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ThemedView style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <ThemedText type="title">Today</ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            style={[styles.primaryButton, { backgroundColor: theme.tint }]}
+            onPress={navigateToAddEntry}>
+            <ThemedText lightColor="#fff" darkColor="#11181C" style={styles.primaryButtonText}>
+              Add
+            </ThemedText>
+          </Pressable>
+        </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        <View style={styles.metricsRow}>
+          <View style={[styles.metric, styles.metricDivider]}>
+            <ThemedText style={styles.metricLabel}>Calories</ThemedText>
+            <ThemedText style={styles.metricValue}>{calorieTotal}</ThemedText>
+          </View>
+          <View style={styles.metric}>
+            <ThemedText style={styles.metricLabel}>Since food</ThemedText>
+            <ThemedText style={styles.metricValue}>
+              {latestTimerEntry ? formatElapsed(latestTimerEntry.eatenAt, now) : '--'}
+            </ThemedText>
+          </View>
+        </View>
+
+        {!latestTimerEntry ? (
+          <ThemedText style={styles.timerNote}>No calorie-containing food logged today.</ThemedText>
+        ) : (
+          <ThemedText style={styles.timerNote}>
+            Last calorie-containing item at {formatTime(latestTimerEntry.eatenAt)}.
+          </ThemedText>
+        )}
+
+        <View style={styles.sectionHeader}>
+          <ThemedText type="subtitle">Intake so far</ThemedText>
+          <ThemedText style={styles.countText}>{todayEntries.length} logged</ThemedText>
+        </View>
+
+        {isLoading ? (
+          <View style={styles.emptyState}>
+            <ActivityIndicator />
+          </View>
+        ) : todayEntries.length === 0 ? (
+          <View style={styles.emptyState}>
+            <ThemedText type="subtitle">Nothing logged yet</ThemedText>
+            <ThemedText style={styles.emptyCopy}>
+              Add your first food, drink, or meal when you are ready.
+            </ThemedText>
+          </View>
+        ) : (
+          <View style={styles.entryList}>
+            {todayEntries.map((entry) => (
+              <View key={entry.id} style={styles.entryRow}>
+                <View style={styles.entryMain}>
+                  <ThemedText type="defaultSemiBold" style={styles.entryName}>
+                    {entry.name}
+                  </ThemedText>
+                  <ThemedText style={styles.entryMeta}>
+                    {formatTime(entry.eatenAt)} · {describeCalories(entry)}
+                  </ThemedText>
+                </View>
+                <View style={styles.entryActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => navigateToEditEntry(entry.id)}>
+                    <ThemedText style={[styles.actionText, { color: theme.tint }]}>Edit</ThemedText>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" hitSlop={8} onPress={() => confirmDelete(entry)}>
+                    <ThemedText style={styles.deleteText}>Delete</ThemedText>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  screen: {
+    flex: 1,
+  },
+  content: {
+    gap: 20,
+    padding: 20,
+    paddingBottom: 40,
+    paddingTop: 72,
+  },
+  header: {
     alignItems: 'center',
-    gap: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  primaryButton: {
+    alignItems: 'center',
+    borderRadius: 8,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  metricsRow: {
+    borderColor: '#D7DEE3',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  metric: {
+    flex: 1,
+    gap: 6,
+    padding: 16,
+  },
+  metricDivider: {
+    borderRightColor: '#D7DEE3',
+    borderRightWidth: 1,
+  },
+  metricLabel: {
+    color: '#687076',
+    fontSize: 13,
+    lineHeight: 18,
+    textTransform: 'uppercase',
+  },
+  metricValue: {
+    fontSize: 30,
+    fontWeight: '800',
+    lineHeight: 36,
+  },
+  timerNote: {
+    color: '#687076',
+    marginTop: -12,
+  },
+  sectionHeader: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  countText: {
+    color: '#687076',
+    fontSize: 14,
+  },
+  emptyState: {
+    alignItems: 'center',
+    borderColor: '#D7DEE3',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 28,
+  },
+  emptyCopy: {
+    color: '#687076',
+    textAlign: 'center',
+  },
+  entryList: {
+    borderColor: '#D7DEE3',
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  entryRow: {
+    alignItems: 'center',
+    borderBottomColor: '#E8EDF0',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  entryMain: {
+    flex: 1,
+    gap: 3,
+  },
+  entryName: {
+    fontSize: 17,
+  },
+  entryMeta: {
+    color: '#687076',
+    fontSize: 14,
+  },
+  entryActions: {
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  actionText: {
+    fontWeight: '700',
+  },
+  deleteText: {
+    color: '#B42318',
+    fontWeight: '700',
   },
 });

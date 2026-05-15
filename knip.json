@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreFiles": [
+    "components/external-link.tsx",
+    "components/hello-wave.tsx",
+    "components/parallax-scroll-view.tsx",
+    "components/ui/collapsible.tsx",
+    "components/ui/icon-symbol.ios.tsx",
+    "hooks/use-color-scheme.web.ts"
+  ],
+  "ignoreDependencies": [
+    "expo-image",
+    "expo-updates",
+    "expo-web-browser"
+  ],
+  "ignoreIssues": {
+    "constants/theme.ts": [
+      "exports"
+    ]
+  }
+}

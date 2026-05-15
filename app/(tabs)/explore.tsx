@@ -1,112 +1,351 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  useColorScheme,
+  View,
+} from 'react-native';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
+import { FoodLogEntry, useFoodLog } from '@/lib/food-log-store';
 
-export default function TabTwoScreen() {
+function pad(value: number) {
+  return value.toString().padStart(2, '0');
+}
+
+function toDateValue(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function toTimeValue(date: Date) {
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function parseLocalDateTime(dateValue: string, timeValue: string) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  const [hours, minutes] = timeValue.split(':').map(Number);
+
+  if (
+    !year ||
+    !month ||
+    !day ||
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null;
+  }
+
+  const parsed = new Date(year, month - 1, day, hours, minutes);
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day ||
+    parsed.getHours() !== hours ||
+    parsed.getMinutes() !== minutes
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function getParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getDefaultFormState(entry?: FoodLogEntry) {
+  const date = entry ? new Date(entry.eatenAt) : new Date();
+
+  return {
+    name: entry?.name ?? '',
+    calories: entry?.calories === null || entry?.calories === undefined ? '' : String(entry.calories),
+    dateValue: toDateValue(date),
+    timeValue: toTimeValue(date),
+  };
+}
+
+export default function FoodInputScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+  const { entryId } = useLocalSearchParams<{ entryId?: string }>();
+  const normalizedEntryId = getParamValue(entryId);
+  const { addEntry, getEntry, updateEntry } = useFoodLog();
+  const editingEntry = useMemo(
+    () => (normalizedEntryId ? getEntry(normalizedEntryId) : undefined),
+    [getEntry, normalizedEntryId]
+  );
+  const isEditing = Boolean(normalizedEntryId);
+  const [name, setName] = useState('');
+  const [calories, setCalories] = useState('');
+  const [dateValue, setDateValue] = useState(toDateValue(new Date()));
+  const [timeValue, setTimeValue] = useState(toTimeValue(new Date()));
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const resetForm = useCallback((entry?: FoodLogEntry) => {
+    const defaultState = getDefaultFormState(entry);
+
+    setName(defaultState.name);
+    setCalories(defaultState.calories);
+    setDateValue(defaultState.dateValue);
+    setTimeValue(defaultState.timeValue);
+    setError('');
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!normalizedEntryId) {
+        resetForm();
+      }
+    }, [normalizedEntryId, resetForm])
+  );
+
+  useEffect(() => {
+    if (normalizedEntryId && editingEntry) {
+      resetForm(editingEntry);
+    }
+  }, [editingEntry, normalizedEntryId, resetForm]);
+
+  async function saveEntry() {
+    const trimmedName = name.trim();
+    const trimmedCalories = calories.trim();
+    const parsedCalories = trimmedCalories === '' ? null : Number(trimmedCalories);
+    const parsedDate = parseLocalDateTime(dateValue.trim(), timeValue.trim());
+
+    if (!trimmedName) {
+      setError('Name is required.');
+      return;
+    }
+
+    if (
+      trimmedCalories !== '' &&
+      (!Number.isFinite(parsedCalories) || parsedCalories === null || parsedCalories < 0)
+    ) {
+      setError('Calories must be a non-negative number.');
+      return;
+    }
+
+    if (!parsedDate) {
+      setError('Use a valid date and 24-hour time.');
+      return;
+    }
+
+    setIsSaving(true);
+    setError('');
+
+    try {
+      const input = {
+        name: trimmedName,
+        calories: parsedCalories,
+        eatenAt: parsedDate,
+      };
+
+      if (isEditing && normalizedEntryId) {
+        await updateEntry(normalizedEntryId, input);
+      } else {
+        await addEntry(input);
+      }
+
+      resetForm();
+      router.replace('/');
+    } catch (saveError) {
+      console.warn('Unable to save entry', saveError);
+      Alert.alert('Save failed', 'Your entry could not be saved. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <ThemedView style={styles.screen}>
+      <KeyboardAvoidingView
+        behavior={Platform.select({ ios: 'padding', default: undefined })}
+        style={styles.keyboardView}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <View style={styles.header}>
+            <ThemedText type="title">{isEditing ? 'Edit entry' : 'Add entry'}</ThemedText>
+            {isEditing ? (
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.replace('/')}>
+                <ThemedText style={[styles.cancelText, { color: theme.tint }]}>Cancel</ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {isEditing && !editingEntry ? (
+            <View style={styles.emptyState}>
+              <ThemedText type="subtitle">Entry not found</ThemedText>
+              <ThemedText style={styles.helpText}>It may have already been deleted.</ThemedText>
+              <Pressable
+                accessibilityRole="button"
+                style={[styles.primaryButton, { backgroundColor: theme.tint }]}
+                onPress={() => router.replace('/')}>
+                <ThemedText lightColor="#fff" darkColor="#11181C" style={styles.primaryButtonText}>
+                  Back to Today
+                </ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.form}>
+              <View style={styles.field}>
+                <ThemedText type="defaultSemiBold">Name</ThemedText>
+                <TextInput
+                  autoCapitalize="sentences"
+                  placeholder="Food, drink, or meal"
+                  placeholderTextColor="#8A939B"
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <ThemedText type="defaultSemiBold">Calories</ThemedText>
+                <TextInput
+                  inputMode="decimal"
+                  keyboardType="decimal-pad"
+                  placeholder="Optional"
+                  placeholderTextColor="#8A939B"
+                  style={styles.input}
+                  value={calories}
+                  onChangeText={setCalories}
+                />
+                <ThemedText style={styles.helpText}>
+                  Blank means unknown. Zero is valid, but does not reset the timer.
+                </ThemedText>
+              </View>
+
+              <View style={styles.timeRow}>
+                <View style={[styles.field, styles.timeField]}>
+                  <ThemedText type="defaultSemiBold">Date</ThemedText>
+                  <TextInput
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#8A939B"
+                    style={styles.input}
+                    value={dateValue}
+                    onChangeText={setDateValue}
+                  />
+                </View>
+
+                <View style={[styles.field, styles.timeField]}>
+                  <ThemedText type="defaultSemiBold">Time</ThemedText>
+                  <TextInput
+                    placeholder="HH:mm"
+                    placeholderTextColor="#8A939B"
+                    style={styles.input}
+                    value={timeValue}
+                    onChangeText={setTimeValue}
+                  />
+                </View>
+              </View>
+
+              {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={isSaving}
+                style={[styles.primaryButton, { backgroundColor: theme.tint, opacity: isSaving ? 0.65 : 1 }]}
+                onPress={saveEntry}>
+                <ThemedText lightColor="#fff" darkColor="#11181C" style={styles.primaryButtonText}>
+                  {isSaving ? 'Saving...' : isEditing ? 'Save changes' : 'Save entry'}
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  screen: {
+    flex: 1,
   },
-  titleContainer: {
+  keyboardView: {
+    flex: 1,
+  },
+  content: {
+    gap: 24,
+    padding: 20,
+    paddingBottom: 40,
+    paddingTop: 72,
+  },
+  header: {
+    alignItems: 'center',
     flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  cancelText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  form: {
+    gap: 18,
+  },
+  field: {
     gap: 8,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderColor: '#D7DEE3',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#11181C',
+    fontSize: 16,
+    minHeight: 52,
+    paddingHorizontal: 14,
+  },
+  helpText: {
+    color: '#687076',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  timeField: {
+    flex: 1,
+  },
+  errorText: {
+    color: '#B42318',
+    fontWeight: '700',
+  },
+  primaryButton: {
+    alignItems: 'center',
+    borderRadius: 8,
+    minHeight: 52,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  emptyState: {
+    alignItems: 'center',
+    borderColor: '#D7DEE3',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 14,
+    padding: 28,
   },
 });
