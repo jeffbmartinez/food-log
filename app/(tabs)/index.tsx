@@ -72,7 +72,7 @@ export default function DashboardScreen() {
 
   const todayEntries = useMemo(() => getEntriesForLocalDay(entries, now), [entries, now]);
   const calorieTotal = useMemo(() => getCalorieTotal(todayEntries), [todayEntries]);
-  const latestTimerEntry = getTimerEligibleEntries(todayEntries)[0];
+  const latestTimerEntry = getTimerEligibleEntries(entries)[0];
 
   function confirmDelete(entry: FoodLogEntry) {
     if (Platform.OS === 'web') {
@@ -126,7 +126,7 @@ export default function DashboardScreen() {
         </View>
 
         {!latestTimerEntry ? (
-          <ThemedText style={styles.timerNote}>No calorie-containing food logged today.</ThemedText>
+          <ThemedText style={styles.timerNote}>No calorie-containing food logged yet.</ThemedText>
         ) : (
           <ThemedText style={styles.timerNote}>
             Last calorie-containing item at {formatTime(latestTimerEntry.eatenAt)}.
