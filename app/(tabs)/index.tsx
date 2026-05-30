@@ -144,7 +144,7 @@ export default function DashboardScreen() {
           </View>
         ) : todayEntries.length === 0 ? (
           <View style={styles.emptyState}>
-            <ThemedText type="subtitle">Nothing logged yet</ThemedText>
+            <ThemedText type="subtitle">Nothing logged today</ThemedText>
             <ThemedText style={styles.emptyCopy}>
               Add your first food, drink, or meal when you are ready.
             </ThemedText>
