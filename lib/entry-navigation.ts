@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 
-export const ADD_ENTRY_ROUTE = '/explore' as const;
+export const ADD_ENTRY_ROUTE = '/entry' as const;
 
 export function navigateToAddEntry() {
   router.push(ADD_ENTRY_ROUTE);

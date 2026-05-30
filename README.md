@@ -24,7 +24,7 @@ npm run web
 
 ## Development
 
-The app uses Expo Router. The main day view is in `app/(tabs)/index.tsx`, entry creation and editing live in `app/(tabs)/explore.tsx`, and food-log persistence/state is centralized in `lib/food-log-store.tsx`.
+The app uses Expo Router. The main day view is in `app/(tabs)/index.tsx`, entry creation and editing live in `app/(tabs)/entry.tsx`, and food-log persistence/state is centralized in `lib/food-log-store.tsx`.
 
 Useful checks:
 

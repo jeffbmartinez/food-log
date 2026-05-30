@@ -51,7 +51,7 @@ Run `npm run lint` before handing off code changes when feasible. Run `npm run k
 
 - Use Expo Router APIs (`router`, `useLocalSearchParams`) for navigation and route params.
 - Keep the main day view on `app/(tabs)/index.tsx`.
-- Keep entry creation and editing on `app/(tabs)/explore.tsx` unless a larger route change is explicitly requested.
+- Keep entry creation and editing on `app/(tabs)/entry.tsx` unless a larger route change is explicitly requested.
 
 ## Testing And Verification
 
