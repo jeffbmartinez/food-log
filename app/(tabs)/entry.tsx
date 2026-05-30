@@ -112,10 +112,15 @@ export default function FoodInputScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!normalizedEntryId) {
+      if (normalizedEntryId) {
+        const entry = getEntry(normalizedEntryId);
+        if (entry) {
+          resetForm(entry);
+        }
+      } else {
         resetForm();
       }
-    }, [normalizedEntryId, resetForm])
+    }, [getEntry, normalizedEntryId, resetForm])
   );
 
   useEffect(() => {
