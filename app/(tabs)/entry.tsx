@@ -10,13 +10,20 @@ import {
   StyleSheet,
   TextInput,
   useColorScheme,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
-import { FoodLogEntry, useFoodLog } from '@/lib/food-log-store';
+import {
+  AutocompleteFood,
+  FoodLogEntry,
+  getAutocompleteMatches,
+  useFoodLog,
+} from '@/lib/food-log-store';
 
 function pad(value: number) {
   return value.toString().padStart(2, '0');
@@ -85,9 +92,17 @@ function getDefaultFormState(entry?: FoodLogEntry) {
 export default function FoodInputScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { entryId } = useLocalSearchParams<{ entryId?: string }>();
   const normalizedEntryId = getParamValue(entryId);
-  const { addEntry, getEntry, updateEntry } = useFoodLog();
+  const {
+    addEntry,
+    autocompleteFoods,
+    deleteAutocompleteFood,
+    getEntry,
+    updateEntry,
+  } = useFoodLog();
   const editingEntry = useMemo(
     () => (normalizedEntryId ? getEntry(normalizedEntryId) : undefined),
     [getEntry, normalizedEntryId]
@@ -99,7 +114,15 @@ export default function FoodInputScreen() {
   const [timeValue, setTimeValue] = useState(toTimeValue(new Date()));
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutocompleteDismissed, setIsAutocompleteDismissed] = useState(false);
   const nameInputRef = useRef<TextInput>(null);
+  const autocompleteLimit = height >= 900 ? 5 : height < 700 ? 2 : 3;
+  const autocompleteMatches = useMemo(
+    () => getAutocompleteMatches(autocompleteFoods, name, autocompleteLimit),
+    [autocompleteFoods, autocompleteLimit, name]
+  );
+  const shouldShowAutocomplete =
+    !isEditing && !isAutocompleteDismissed && autocompleteMatches.length > 0;
 
   const resetForm = useCallback((entry?: FoodLogEntry) => {
     const defaultState = getDefaultFormState(entry);
@@ -109,6 +132,7 @@ export default function FoodInputScreen() {
     setDateValue(defaultState.dateValue);
     setTimeValue(defaultState.timeValue);
     setError('');
+    setIsAutocompleteDismissed(false);
   }, []);
 
   useFocusEffect(
@@ -132,6 +156,47 @@ export default function FoodInputScreen() {
       resetForm(editingEntry);
     }
   }, [editingEntry, normalizedEntryId, resetForm]);
+
+  function selectAutocompleteFood(food: AutocompleteFood) {
+    setName(food.displayName);
+    setCalories(food.calories === null ? '' : String(food.calories));
+    setError('');
+    setIsAutocompleteDismissed(true);
+    nameInputRef.current?.blur();
+  }
+
+  function removeAutocompleteFood(food: AutocompleteFood) {
+    async function removeFood() {
+      try {
+        await deleteAutocompleteFood(food.id);
+      } catch (deleteError) {
+        console.warn('Unable to remove autocomplete food', deleteError);
+        Alert.alert(
+          'Remove failed',
+          'This suggestion could not be removed. Please try again.'
+        );
+      }
+    }
+
+    const message = 'This won’t delete any food-log entries.';
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Remove “${food.displayName}” from suggestions?\n\n${message}`)) {
+        void removeFood();
+      }
+
+      return;
+    }
+
+    Alert.alert(`Remove “${food.displayName}” from suggestions?`, message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => void removeFood(),
+      },
+    ]);
+  }
 
   async function saveEntry() {
     const trimmedName = name.trim();
@@ -188,7 +253,7 @@ export default function FoodInputScreen() {
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: 'padding', default: undefined })}
         style={styles.keyboardView}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="always">
           <View style={styles.header}>
             <ThemedText type="title">{isEditing ? 'Edit entry' : 'Add entry'}</ThemedText>
             {isEditing ? (
@@ -222,8 +287,56 @@ export default function FoodInputScreen() {
                   ref={nameInputRef}
                   style={styles.input}
                   value={name}
-                  onChangeText={setName}
+                  onChangeText={(value) => {
+                    setName(value);
+                    setError('');
+                    setIsAutocompleteDismissed(false);
+                  }}
+                  onBlur={() => setIsAutocompleteDismissed(true)}
+                  onFocus={() => setIsAutocompleteDismissed(false)}
                 />
+                {shouldShowAutocomplete ? (
+                  <View
+                    accessibilityLabel="Food suggestions"
+                    accessibilityRole="list"
+                    style={styles.autocompletePanel}>
+                    <ScrollView
+                      keyboardShouldPersistTaps="always"
+                      nestedScrollEnabled
+                      style={styles.autocompleteScroll}>
+                      {autocompleteMatches.map((food) => (
+                        <View key={food.id} style={styles.autocompleteRow}>
+                          <Pressable
+                            accessibilityLabel={
+                              food.calories === null
+                                ? `Use ${food.displayName}`
+                                : `Use ${food.displayName}, ${food.calories} calories`
+                            }
+                            accessibilityRole="button"
+                            onPress={() => selectAutocompleteFood(food)}
+                            style={styles.autocompleteSelect}>
+                            <ThemedText numberOfLines={1} style={styles.autocompleteName}>
+                              {food.displayName}
+                            </ThemedText>
+                            {food.calories === null ? null : (
+                              <ThemedText style={styles.autocompleteCalories}>
+                                {food.calories} cal
+                              </ThemedText>
+                            )}
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Remove ${food.displayName} from suggestions`}
+                            accessibilityRole="button"
+                            hitSlop={8}
+                            onPress={() => removeAutocompleteFood(food)}
+                            style={styles.removeSuggestionButton}>
+                            <ThemedText style={styles.removeSuggestionText}>Remove</ThemedText>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
               </View>
 
               <View style={styles.field}>
@@ -266,20 +379,34 @@ export default function FoodInputScreen() {
                 </View>
               </View>
 
-              {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                style={[styles.primaryButton, { backgroundColor: theme.tint, opacity: isSaving ? 0.65 : 1 }]}
-                onPress={saveEntry}>
-                <ThemedText lightColor="#fff" darkColor="#11181C" style={styles.primaryButtonText}>
-                  {isSaving ? 'Saving...' : isEditing ? 'Save changes' : 'Save entry'}
-                </ThemedText>
-              </Pressable>
             </View>
           )}
         </ScrollView>
+        {(!isEditing || editingEntry) ? (
+          <View
+            style={[
+              styles.footer,
+              {
+                backgroundColor: theme.background,
+                borderTopColor: colorScheme === 'dark' ? '#3B4248' : '#D7DEE3',
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}>
+            {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+            <Pressable
+              accessibilityRole="button"
+              disabled={isSaving}
+              style={[
+                styles.primaryButton,
+                { backgroundColor: theme.tint, opacity: isSaving ? 0.65 : 1 },
+              ]}
+              onPress={saveEntry}>
+              <ThemedText lightColor="#fff" darkColor="#11181C" style={styles.primaryButtonText}>
+                {isSaving ? 'Saving...' : isEditing ? 'Save changes' : 'Save entry'}
+              </ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
     </ThemedView>
   );
@@ -295,7 +422,7 @@ const styles = StyleSheet.create({
   content: {
     gap: 24,
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 24,
     paddingTop: 72,
   },
   header: {
@@ -323,6 +450,49 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: 14,
   },
+  autocompletePanel: {
+    borderColor: '#D7DEE3',
+    borderRadius: 8,
+    borderWidth: 1,
+    maxHeight: 184,
+    overflow: 'hidden',
+  },
+  autocompleteScroll: {
+    maxHeight: 182,
+  },
+  autocompleteRow: {
+    alignItems: 'stretch',
+    borderBottomColor: '#D7DEE3',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    minHeight: 52,
+  },
+  autocompleteSelect: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minWidth: 0,
+    paddingHorizontal: 14,
+  },
+  autocompleteName: {
+    flex: 1,
+  },
+  autocompleteCalories: {
+    color: '#687076',
+    fontSize: 14,
+  },
+  removeSuggestionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 72,
+    paddingHorizontal: 10,
+  },
+  removeSuggestionText: {
+    color: '#B42318',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   helpText: {
     color: '#687076',
     fontSize: 14,
@@ -338,6 +508,12 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#B42318',
     fontWeight: '700',
+  },
+  footer: {
+    borderTopWidth: 1,
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
   primaryButton: {
     alignItems: 'center',

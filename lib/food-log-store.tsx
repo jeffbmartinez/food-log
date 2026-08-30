@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 const STORAGE_KEY = 'food-log.entries.v1';
+const AUTOCOMPLETE_STORAGE_KEY = 'food-log.autocomplete.v1';
 
 export type FoodLogEntry = {
   id: string;
@@ -26,12 +27,23 @@ export type FoodLogInput = {
   eatenAt: Date;
 };
 
+export type AutocompleteFood = {
+  id: string;
+  normalizedName: string;
+  displayName: string;
+  calories: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type FoodLogContextValue = {
   entries: FoodLogEntry[];
+  autocompleteFoods: AutocompleteFood[];
   isLoading: boolean;
   addEntry: (input: FoodLogInput) => Promise<FoodLogEntry>;
   updateEntry: (id: string, input: FoodLogInput) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
+  deleteAutocompleteFood: (id: string) => Promise<void>;
   getEntry: (id: string) => FoodLogEntry | undefined;
 };
 
@@ -58,14 +70,74 @@ function isFoodLogEntry(value: unknown): value is FoodLogEntry {
   );
 }
 
+function isAutocompleteFood(value: unknown): value is AutocompleteFood {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const food = value as Partial<AutocompleteFood>;
+
+  return (
+    typeof food.id === 'string' &&
+    typeof food.normalizedName === 'string' &&
+    typeof food.displayName === 'string' &&
+    (typeof food.calories === 'number' || food.calories === null) &&
+    typeof food.createdAt === 'string' &&
+    typeof food.updatedAt === 'string'
+  );
+}
+
 function sortByNewest(entries: FoodLogEntry[]) {
   return [...entries].sort(
     (first, second) => new Date(second.eatenAt).getTime() - new Date(first.eatenAt).getTime()
   );
 }
 
+function sortAutocompleteFoods(foods: AutocompleteFood[]) {
+  return [...foods].sort((first, second) => {
+    const updatedAtDifference =
+      new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
+
+    return updatedAtDifference || first.displayName.localeCompare(second.displayName);
+  });
+}
+
+function normalizeFoodName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+export function getAutocompleteMatches(
+  foods: AutocompleteFood[],
+  query: string,
+  limit: number
+) {
+  const normalizedQuery = normalizeFoodName(query);
+
+  if (normalizedQuery.length < 2) {
+    return [];
+  }
+
+  return foods
+    .filter((food) => food.normalizedName.includes(normalizedQuery))
+    .sort((first, second) => {
+      const firstIsPrefixMatch = first.normalizedName.startsWith(normalizedQuery);
+      const secondIsPrefixMatch = second.normalizedName.startsWith(normalizedQuery);
+
+      if (firstIsPrefixMatch !== secondIsPrefixMatch) {
+        return firstIsPrefixMatch ? -1 : 1;
+      }
+
+      const updatedAtDifference =
+        new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
+
+      return updatedAtDifference || first.displayName.localeCompare(second.displayName);
+    })
+    .slice(0, limit);
+}
+
 export function FoodLogProvider({ children }: PropsWithChildren) {
   const [entries, setEntries] = useState<FoodLogEntry[]>([]);
+  const [autocompleteFoods, setAutocompleteFoods] = useState<AutocompleteFood[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -73,11 +145,21 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
 
     async function loadEntries() {
       try {
-        const savedEntries = await AsyncStorage.getItem(STORAGE_KEY);
-        const parsedEntries = savedEntries ? JSON.parse(savedEntries) : [];
+        const [savedEntries, savedAutocompleteFoods] = await AsyncStorage.multiGet([
+          STORAGE_KEY,
+          AUTOCOMPLETE_STORAGE_KEY,
+        ]);
+        const parsedEntries = savedEntries[1] ? JSON.parse(savedEntries[1]) : [];
+        const parsedAutocompleteFoods = savedAutocompleteFoods[1]
+          ? JSON.parse(savedAutocompleteFoods[1])
+          : [];
 
         if (Array.isArray(parsedEntries) && isMounted) {
           setEntries(sortByNewest(parsedEntries.filter(isFoodLogEntry)));
+        }
+
+        if (Array.isArray(parsedAutocompleteFoods) && isMounted) {
+          setAutocompleteFoods(sortAutocompleteFoods(parsedAutocompleteFoods.filter(isAutocompleteFood)));
         }
       } catch (error) {
         console.warn('Unable to load food log entries', error);
@@ -102,6 +184,13 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(sortedEntries));
   }, []);
 
+  const persistAutocompleteFoods = useCallback(async (nextFoods: AutocompleteFood[]) => {
+    const sortedFoods = sortAutocompleteFoods(nextFoods);
+
+    setAutocompleteFoods(sortedFoods);
+    await AsyncStorage.setItem(AUTOCOMPLETE_STORAGE_KEY, JSON.stringify(sortedFoods));
+  }, []);
+
   const addEntry = useCallback(
     async (input: FoodLogInput) => {
       const now = new Date().toISOString();
@@ -114,11 +203,41 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
         updatedAt: now,
       };
 
-      await persistEntries([entry, ...entries]);
+      const normalizedName = normalizeFoodName(entry.name);
+      const existingFood = autocompleteFoods.find(
+        (food) => food.normalizedName === normalizedName
+      );
+      const nextAutocompleteFoods = existingFood
+        ? autocompleteFoods.map((food) =>
+            food.id === existingFood.id
+              ? {
+                  ...food,
+                  displayName: entry.name,
+                  calories: entry.calories,
+                  updatedAt: now,
+                }
+              : food
+          )
+        : [
+            ...autocompleteFoods,
+            {
+              id: createId(),
+              normalizedName,
+              displayName: entry.name,
+              calories: entry.calories,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ];
+
+      await Promise.all([
+        persistEntries([entry, ...entries]),
+        persistAutocompleteFoods(nextAutocompleteFoods),
+      ]);
 
       return entry;
     },
-    [entries, persistEntries]
+    [autocompleteFoods, entries, persistAutocompleteFoods, persistEntries]
   );
 
   const updateEntry = useCallback(
@@ -149,6 +268,13 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
     [entries, persistEntries]
   );
 
+  const deleteAutocompleteFood = useCallback(
+    async (id: string) => {
+      await persistAutocompleteFoods(autocompleteFoods.filter((food) => food.id !== id));
+    },
+    [autocompleteFoods, persistAutocompleteFoods]
+  );
+
   const getEntry = useCallback(
     (id: string) => entries.find((entry) => entry.id === id),
     [entries]
@@ -157,13 +283,24 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
   const value = useMemo(
     () => ({
       entries,
+      autocompleteFoods,
       isLoading,
       addEntry,
       updateEntry,
       deleteEntry,
+      deleteAutocompleteFood,
       getEntry,
     }),
-    [addEntry, deleteEntry, entries, getEntry, isLoading, updateEntry]
+    [
+      addEntry,
+      autocompleteFoods,
+      deleteAutocompleteFood,
+      deleteEntry,
+      entries,
+      getEntry,
+      isLoading,
+      updateEntry,
+    ]
   );
 
   return <FoodLogContext.Provider value={value}>{children}</FoodLogContext.Provider>;
