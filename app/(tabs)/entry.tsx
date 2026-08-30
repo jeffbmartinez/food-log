@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -99,6 +99,7 @@ export default function FoodInputScreen() {
   const [timeValue, setTimeValue] = useState(toTimeValue(new Date()));
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const nameInputRef = useRef<TextInput>(null);
 
   const resetForm = useCallback((entry?: FoodLogEntry) => {
     const defaultState = getDefaultFormState(entry);
@@ -119,6 +120,9 @@ export default function FoodInputScreen() {
         }
       } else {
         resetForm();
+        const focusFrame = requestAnimationFrame(() => nameInputRef.current?.focus());
+
+        return () => cancelAnimationFrame(focusFrame);
       }
     }, [getEntry, normalizedEntryId, resetForm])
   );
@@ -215,6 +219,7 @@ export default function FoodInputScreen() {
                   autoCapitalize="sentences"
                   placeholder="Food, drink, or meal"
                   placeholderTextColor="#8A939B"
+                  ref={nameInputRef}
                   style={styles.input}
                   value={name}
                   onChangeText={setName}
