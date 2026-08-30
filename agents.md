@@ -16,9 +16,9 @@ This is an Expo React Native food logging app. Keep changes small, typed, and co
 - Start native/web development server: `npm start`
 - Start web directly: `npm run web`
 - Lint: `npm run lint`
-- Find unused files, exports, and dependencies: `npm run knip`
+- Find unused files, exports, and dependencies: `npm exec knip`
 
-Run `npm run lint` before handing off code changes when feasible. Run `npm run knip` when dependency, export, or file usage changes are part of the work.
+Run `npm run lint` before handing off code changes when feasible. Run `npm exec knip` when dependency, export, or file usage changes are part of the work.
 
 ## Running Servers
 

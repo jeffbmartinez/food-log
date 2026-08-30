@@ -36,6 +36,6 @@ Useful checks:
 
 ```bash
 npm run lint
-npm run knip
+npm exec knip
 npm run klint # runs lint followed by knip
 ```
