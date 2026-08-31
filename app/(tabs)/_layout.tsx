@@ -46,6 +46,7 @@ export default function TabLayout() {
         options={{
           title: 'Add',
           tabBarButton: AddTabButton,
+          tabBarHideOnKeyboard: true,
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="plus.circle.fill" color={color} />,
         }}
       />

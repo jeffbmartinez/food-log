@@ -93,17 +93,83 @@ function sortByNewest(entries: FoodLogEntry[]) {
   );
 }
 
-function sortAutocompleteFoods(foods: AutocompleteFood[]) {
-  return [...foods].sort((first, second) => {
-    const updatedAtDifference =
-      new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
+function compareAutocompleteFoods(first: AutocompleteFood, second: AutocompleteFood) {
+  const updatedAtDifference =
+    new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
 
-    return updatedAtDifference || first.displayName.localeCompare(second.displayName);
-  });
+  return updatedAtDifference || first.displayName.localeCompare(second.displayName);
+}
+
+function sortAutocompleteFoods(foods: AutocompleteFood[]) {
+  return [...foods].sort(compareAutocompleteFoods);
 }
 
 function normalizeFoodName(name: string) {
   return name.trim().toLowerCase();
+}
+
+function parseStoredRecords<T>(
+  storedValue: string | null,
+  isRecord: (value: unknown) => value is T,
+  label: string
+) {
+  if (!storedValue) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue);
+
+    if (!Array.isArray(parsedValue)) {
+      throw new Error('Stored value is not an array.');
+    }
+
+    const records = parsedValue.filter(isRecord);
+
+    if (records.length !== parsedValue.length) {
+      console.warn(`Some stored ${label} records were invalid and ignored.`);
+    }
+
+    return records;
+  } catch (error) {
+    console.warn(`Unable to load stored ${label}`, error);
+    return [];
+  }
+}
+
+function upsertAutocompleteFood(
+  foods: AutocompleteFood[],
+  displayName: string,
+  calories: number | null,
+  updatedAt: string
+) {
+  const normalizedName = normalizeFoodName(displayName);
+  const existingFood = foods.find((food) => food.normalizedName === normalizedName);
+
+  if (existingFood) {
+    return foods.map((food) =>
+      food.id === existingFood.id
+        ? {
+            ...food,
+            displayName,
+            calories,
+            updatedAt,
+          }
+        : food
+    );
+  }
+
+  return [
+    ...foods,
+    {
+      id: createId(),
+      normalizedName,
+      displayName,
+      calories,
+      createdAt: updatedAt,
+      updatedAt,
+    },
+  ];
 }
 
 export function getAutocompleteMatches(
@@ -127,10 +193,7 @@ export function getAutocompleteMatches(
         return firstIsPrefixMatch ? -1 : 1;
       }
 
-      const updatedAtDifference =
-        new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
-
-      return updatedAtDifference || first.displayName.localeCompare(second.displayName);
+      return compareAutocompleteFoods(first, second);
     })
     .slice(0, limit);
 }
@@ -145,21 +208,18 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
 
     async function loadEntries() {
       try {
-        const [savedEntries, savedAutocompleteFoods] = await AsyncStorage.multiGet([
+        const [[, savedEntries], [, savedAutocompleteFoods]] = await AsyncStorage.multiGet([
           STORAGE_KEY,
           AUTOCOMPLETE_STORAGE_KEY,
         ]);
-        const parsedEntries = savedEntries[1] ? JSON.parse(savedEntries[1]) : [];
-        const parsedAutocompleteFoods = savedAutocompleteFoods[1]
-          ? JSON.parse(savedAutocompleteFoods[1])
-          : [];
 
-        if (Array.isArray(parsedEntries) && isMounted) {
-          setEntries(sortByNewest(parsedEntries.filter(isFoodLogEntry)));
-        }
-
-        if (Array.isArray(parsedAutocompleteFoods) && isMounted) {
-          setAutocompleteFoods(sortAutocompleteFoods(parsedAutocompleteFoods.filter(isAutocompleteFood)));
+        if (isMounted) {
+          setEntries(sortByNewest(parseStoredRecords(savedEntries, isFoodLogEntry, 'food log')));
+          setAutocompleteFoods(
+            sortAutocompleteFoods(
+              parseStoredRecords(savedAutocompleteFoods, isAutocompleteFood, 'autocomplete')
+            )
+          );
         }
       } catch (error) {
         console.warn('Unable to load food log entries', error);
@@ -180,16 +240,32 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
   const persistEntries = useCallback(async (nextEntries: FoodLogEntry[]) => {
     const sortedEntries = sortByNewest(nextEntries);
 
-    setEntries(sortedEntries);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(sortedEntries));
+    setEntries(sortedEntries);
   }, []);
 
   const persistAutocompleteFoods = useCallback(async (nextFoods: AutocompleteFood[]) => {
     const sortedFoods = sortAutocompleteFoods(nextFoods);
 
-    setAutocompleteFoods(sortedFoods);
     await AsyncStorage.setItem(AUTOCOMPLETE_STORAGE_KEY, JSON.stringify(sortedFoods));
+    setAutocompleteFoods(sortedFoods);
   }, []);
+
+  const persistAddedEntry = useCallback(
+    async (nextEntries: FoodLogEntry[], nextFoods: AutocompleteFood[]) => {
+      const sortedEntries = sortByNewest(nextEntries);
+      const sortedFoods = sortAutocompleteFoods(nextFoods);
+
+      await AsyncStorage.multiSet([
+        [STORAGE_KEY, JSON.stringify(sortedEntries)],
+        [AUTOCOMPLETE_STORAGE_KEY, JSON.stringify(sortedFoods)],
+      ]);
+
+      setEntries(sortedEntries);
+      setAutocompleteFoods(sortedFoods);
+    },
+    []
+  );
 
   const addEntry = useCallback(
     async (input: FoodLogInput) => {
@@ -203,41 +279,18 @@ export function FoodLogProvider({ children }: PropsWithChildren) {
         updatedAt: now,
       };
 
-      const normalizedName = normalizeFoodName(entry.name);
-      const existingFood = autocompleteFoods.find(
-        (food) => food.normalizedName === normalizedName
+      const nextAutocompleteFoods = upsertAutocompleteFood(
+        autocompleteFoods,
+        entry.name,
+        entry.calories,
+        now
       );
-      const nextAutocompleteFoods = existingFood
-        ? autocompleteFoods.map((food) =>
-            food.id === existingFood.id
-              ? {
-                  ...food,
-                  displayName: entry.name,
-                  calories: entry.calories,
-                  updatedAt: now,
-                }
-              : food
-          )
-        : [
-            ...autocompleteFoods,
-            {
-              id: createId(),
-              normalizedName,
-              displayName: entry.name,
-              calories: entry.calories,
-              createdAt: now,
-              updatedAt: now,
-            },
-          ];
 
-      await Promise.all([
-        persistEntries([entry, ...entries]),
-        persistAutocompleteFoods(nextAutocompleteFoods),
-      ]);
+      await persistAddedEntry([entry, ...entries], nextAutocompleteFoods);
 
       return entry;
     },
-    [autocompleteFoods, entries, persistAutocompleteFoods, persistEntries]
+    [autocompleteFoods, entries, persistAddedEntry]
   );
 
   const updateEntry = useCallback(

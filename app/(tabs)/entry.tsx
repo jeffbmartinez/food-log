@@ -25,6 +25,9 @@ import {
   useFoodLog,
 } from '@/lib/food-log-store';
 
+const AUTOCOMPLETE_ROW_HEIGHT = 52;
+const AUTOCOMPLETE_PANEL_BORDER_HEIGHT = 2;
+
 function pad(value: number) {
   return value.toString().padStart(2, '0');
 }
@@ -117,6 +120,9 @@ export default function FoodInputScreen() {
   const [isAutocompleteDismissed, setIsAutocompleteDismissed] = useState(false);
   const nameInputRef = useRef<TextInput>(null);
   const autocompleteLimit = height >= 900 ? 5 : height < 700 ? 2 : 3;
+  const autocompleteScrollMaxHeight = AUTOCOMPLETE_ROW_HEIGHT * autocompleteLimit;
+  const autocompletePanelMaxHeight =
+    autocompleteScrollMaxHeight + AUTOCOMPLETE_PANEL_BORDER_HEIGHT;
   const autocompleteMatches = useMemo(
     () => getAutocompleteMatches(autocompleteFoods, name, autocompleteLimit),
     [autocompleteFoods, autocompleteLimit, name]
@@ -251,7 +257,7 @@ export default function FoodInputScreen() {
   return (
     <ThemedView style={styles.screen}>
       <KeyboardAvoidingView
-        behavior={Platform.select({ ios: 'padding', default: undefined })}
+        behavior={Platform.select({ ios: 'padding', android: 'height', default: undefined })}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="always">
           <View style={styles.header}>
@@ -299,11 +305,11 @@ export default function FoodInputScreen() {
                   <View
                     accessibilityLabel="Food suggestions"
                     accessibilityRole="list"
-                    style={styles.autocompletePanel}>
+                    style={[styles.autocompletePanel, { maxHeight: autocompletePanelMaxHeight }]}>
                     <ScrollView
                       keyboardShouldPersistTaps="always"
                       nestedScrollEnabled
-                      style={styles.autocompleteScroll}>
+                      style={{ maxHeight: autocompleteScrollMaxHeight }}>
                       {autocompleteMatches.map((food) => (
                         <View key={food.id} style={styles.autocompleteRow}>
                           <Pressable
@@ -454,11 +460,7 @@ const styles = StyleSheet.create({
     borderColor: '#D7DEE3',
     borderRadius: 8,
     borderWidth: 1,
-    maxHeight: 184,
     overflow: 'hidden',
-  },
-  autocompleteScroll: {
-    maxHeight: 182,
   },
   autocompleteRow: {
     alignItems: 'stretch',
